@@ -14,11 +14,20 @@ class Default(WorkerEntrypoint):
         try:
             # 1. Map Cloudflare environment variables to os.environ so os.getenv() works
             # across the entire Python codebase without modifying original settings files.
-            for key in dir(self.env):
+            try:
+                from js import Object
+                env_keys = Object.keys(self.env)
+            except Exception:
+                env_keys = dir(self.env)
+
+            for key in env_keys:
                 if not key.startswith("_"):
-                    val = getattr(self.env, key)
-                    if isinstance(val, (str, int, float, bool)):
-                        os.environ[key] = str(val)
+                    try:
+                        val = getattr(self.env, key)
+                        if isinstance(val, (str, int, float, bool)):
+                            os.environ[key] = str(val)
+                    except AttributeError:
+                        pass
 
             # Ensure ACCOUNT_STORAGE is set to cloudflare_d1 in the serverless environment
             os.environ["ACCOUNT_STORAGE"] = "cloudflare_d1"
@@ -26,9 +35,15 @@ class Default(WorkerEntrypoint):
             os.environ["LOG_FILE_ENABLED"] = "false"
 
             # 2. Inject D1 SQLite Database binding for account & configuration storage
-            if hasattr(self.env, "DB"):
+            db_binding = None
+            try:
+                db_binding = self.env.DB
+            except AttributeError:
+                pass
+
+            if db_binding is not None:
                 from app.control.account.backends.cloudflare_d1 import set_d1_database
-                set_d1_database(self.env.DB)
+                set_d1_database(db_binding)
 
             # 3. Lazily import and initialize FastAPI app after environment has been mapped.
             # This guarantees that get_repository_backend() correctly reads "cloudflare_d1".
