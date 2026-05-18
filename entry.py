@@ -2,15 +2,14 @@ import os
 from workers import WorkerEntrypoint
 import asgi
 
+_app = None
+
 # The WorkerEntrypoint is the main entry point defined in wrangler.toml.
 # It intercepts incoming requests, maps environment variables and bindings,
 # and delegates the request execution to our FastAPI application via ASGI.
 class Default(WorkerEntrypoint):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.app = None
-
     async def fetch(self, request):
+        global _app
         try:
             # 1. Map Cloudflare environment variables to os.environ so os.getenv() works
             # across the entire Python codebase without modifying original settings files.
@@ -47,7 +46,7 @@ class Default(WorkerEntrypoint):
 
             # 3. Lazily import and initialize FastAPI app after environment has been mapped.
             # This guarantees that get_repository_backend() correctly reads "cloudflare_d1".
-            if self.app is None:
+            if _app is None:
                 from app.main import app
                 
                 # Monkeypatch locks and local media cache since filesystem is read-only
@@ -81,10 +80,10 @@ class Default(WorkerEntrypoint):
                 app.state.repository = repo
                 app.state.directory = await get_account_directory(repo)
                 
-                self.app = app
+                _app = app
 
             # 4. Bridge ASGI fetch request and return standard JS Response
-            return await asgi.fetch(self.app, request, self.env)
+            return await asgi.fetch(_app, request, self.env)
         except Exception as exc:
             import traceback
             tb = traceback.format_exc()
