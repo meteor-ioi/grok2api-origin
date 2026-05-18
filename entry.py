@@ -42,6 +42,29 @@ class Default(WorkerEntrypoint):
                 pass
             app.main.reconcile_local_media_cache_async = dummy_reconcile
             
+            # --- Lazy Startup Initialization for Serverless Environment ---
+            from app.control.account.backends.factory import create_repository
+            from app.platform.startup import run_startup_migrations
+            from app.platform.config.snapshot import config
+            
+            # A. Initialize and load configuration backend
+            await config.load()
+            
+            # B. Create and initialize repository schema in D1
+            repo = create_repository()
+            await repo.initialize()
+            
+            # C. Run first-boot migrations to seed D1 schema/config
+            await run_startup_migrations(
+                config_backend=config._get_backend(),
+                account_repo=repo
+            )
+            
+            # D. Populate application state variables
+            from app.dataplane.account import get_account_directory
+            app.state.repository = repo
+            app.state.directory = await get_account_directory(repo)
+            
             self.app = app
 
         # 4. Bridge ASGI fetch request and return standard JS Response
