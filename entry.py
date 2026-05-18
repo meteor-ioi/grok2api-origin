@@ -21,6 +21,8 @@ class Default(WorkerEntrypoint):
 
         # Ensure ACCOUNT_STORAGE is set to cloudflare_d1 in the serverless environment
         os.environ["ACCOUNT_STORAGE"] = "cloudflare_d1"
+        # Disable file logging dynamically to prevent folder creations in read-only environment
+        os.environ["LOG_FILE_ENABLED"] = "false"
 
         # 2. Inject D1 SQLite Database binding for account & configuration storage
         if hasattr(self.env, "DB"):
@@ -31,6 +33,15 @@ class Default(WorkerEntrypoint):
         # This guarantees that get_repository_backend() correctly reads "cloudflare_d1".
         if self.app is None:
             from app.main import app
+            
+            # Monkeypatch locks and local media cache since filesystem is read-only
+            import app.main
+            app.main._try_acquire_scheduler_lock = lambda: False
+            
+            async def dummy_reconcile(*args, **kwargs):
+                pass
+            app.main.reconcile_local_media_cache_async = dummy_reconcile
+            
             self.app = app
 
         # 4. Bridge ASGI fetch request and return standard JS Response
