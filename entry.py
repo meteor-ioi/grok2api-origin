@@ -69,7 +69,7 @@ class Default(WorkerEntrypoint):
                 self.app = app
 
             # 4. Bridge ASGI fetch request and return standard JS Response
-            return await asgi.fetch(self.app, request.js_object, self.env)
+            return await asgi.fetch(self.app, request, self.env)
         except Exception as exc:
             import traceback
             tb = traceback.format_exc()
