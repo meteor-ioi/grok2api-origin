@@ -4,12 +4,93 @@ import asyncio
 from typing import Any
 from urllib.parse import urlparse
 
-from curl_cffi.const import CurlOpt
+try:
+    from curl_cffi.requests import AsyncSession
+    from curl_cffi.const import CurlOpt
+    HAS_CURL_CFFI = True
+except ImportError:
+    import httpx
+    HAS_CURL_CFFI = False
+    class CurlOpt:
+        PROXY_SSL_VERIFYPEER = None
+        PROXY_SSL_VERIFYHOST = None
 
 from app.platform.config.snapshot import get_config
 from app.platform.errors import UpstreamError
 from app.control.proxy.models import ProxyLease
 from app.dataplane.proxy.adapters.profile import resolve_proxy_profile
+
+
+if not HAS_CURL_CFFI:
+    class HttpxResponseWrapper:
+        def __init__(self, client: httpx.AsyncClient, method: str, url: str, **kwargs: Any) -> None:
+            self.client = client
+            self.method = method
+            self.url = url
+            self.kwargs = kwargs
+            self.response = None
+            self._stream_context = None
+
+        async def aenter(self) -> "HttpxResponseWrapper":
+            stream = self.kwargs.pop("stream", False)
+            if "data" in self.kwargs:
+                data_val = self.kwargs.pop("data")
+                if isinstance(data_val, (bytes, str)):
+                    self.kwargs["content"] = data_val
+                else:
+                    self.kwargs["data"] = data_val
+            
+            self.kwargs.pop("impersonate", None)
+            self.kwargs.pop("curl_options", None)
+            
+            timeout = self.kwargs.pop("timeout", None)
+            if timeout is not None:
+                self.kwargs["timeout"] = httpx.Timeout(timeout)
+
+            if "allow_redirects" in self.kwargs:
+                self.kwargs["follow_redirects"] = self.kwargs.pop("allow_redirects")
+
+            if stream:
+                self._stream_context = self.client.stream(self.method, self.url, **self.kwargs)
+                self.response = await self._stream_context.__aenter__()
+            else:
+                self.response = await self.client.request(self.method, self.url, **self.kwargs)
+            return self
+
+        @property
+        def status_code(self) -> int:
+            return self.response.status_code
+
+        @property
+        def content(self) -> bytes:
+            return self.response.content
+
+        @property
+        def headers(self) -> Any:
+            return self.response.headers
+
+        async def aiter_lines(self) -> Any:
+            try:
+                async for line in self.response.aiter_lines():
+                    yield line
+            finally:
+                await self.close()
+
+        async def aiter_content(self) -> Any:
+            try:
+                async for chunk in self.response.aiter_bytes():
+                    yield chunk
+            finally:
+                await self.close()
+
+        async def close(self) -> None:
+            if self._stream_context:
+                try:
+                    await self._stream_context.__aexit__(None, None, None)
+                except Exception:
+                    pass
+                self._stream_context = None
+
 
 
 def _skip_proxy_ssl(proxy_url: str) -> bool:
@@ -108,6 +189,22 @@ class ResettableSession:
         self._session = self._create()
 
     def _create(self):
+        if not HAS_CURL_CFFI:
+            client_kwargs = {}
+            proxy_url = self._kwargs.get("proxy") or ""
+            if not proxy_url and "proxies" in self._kwargs:
+                proxies = self._kwargs.get("proxies") or {}
+                proxy_url = proxies.get("https") or proxies.get("http") or ""
+            if proxy_url:
+                client_kwargs["proxy"] = proxy_url
+            
+            cfg = get_config()
+            skip_ssl = cfg.get_bool("proxy.egress.skip_ssl_verify", False)
+            if skip_ssl:
+                client_kwargs["verify"] = False
+
+            return httpx.AsyncClient(**client_kwargs)
+
         from curl_cffi.requests import AsyncSession
 
         return AsyncSession(**self._kwargs)
@@ -127,6 +224,14 @@ class ResettableSession:
 
     async def _request(self, method: str, *args: Any, **kwargs: Any):
         await self._maybe_reset()
+        if not HAS_CURL_CFFI:
+            url = args[0] if args else kwargs.pop("url", "")
+            wrapper = HttpxResponseWrapper(self._session, method, url, **kwargs)
+            await wrapper.aenter()
+            if self._reset_on and wrapper.status_code in self._reset_on:
+                self._reset_pending = True
+            return wrapper
+
         try:
             response = await getattr(self._session, method)(*args, **kwargs)
         except Exception as exc:

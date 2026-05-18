@@ -1,0 +1,8 @@
+fastapi
+pydantic
+python-dotenv
+python-multipart
+loguru
+tomli-w
+httpx
+starlette

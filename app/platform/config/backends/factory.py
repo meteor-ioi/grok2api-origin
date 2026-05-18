@@ -30,8 +30,16 @@ def create_config_backend() -> ConfigBackend:
         return _make_redis()
     if backend in ("mysql", "postgresql"):
         return _make_sql(backend)
+    if backend == "cloudflare_d1":
+        return _make_cloudflare_d1()
 
     raise ValueError(f"Unknown account storage backend: {backend!r}")
+
+
+def _make_cloudflare_d1() -> ConfigBackend:
+    from .cloudflare_d1 import CloudflareD1ConfigBackend
+
+    return CloudflareD1ConfigBackend()
 
 
 def _make_toml() -> ConfigBackend:

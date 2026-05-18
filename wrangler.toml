@@ -1,0 +1,20 @@
+name = "grok2api"
+main = "entry.py"
+compatibility_date = "2024-04-03"
+compatibility_flags = ["python_workers"]
+
+# System environment variables mapped directly to Workers vars
+[vars]
+ACCOUNT_STORAGE = "cloudflare_d1"
+# Add other environment variables here as needed, e.g.:
+# API_KEY = "your-custom-auth-key"
+# PROXY_EGRESS_SKIP_SSL_VERIFY = "true"
+
+# Serverless SQLite D1 Database bindings.
+# Local development works out of the box. For production,
+# replace database_id with your own D1 database ID (created via 'npx wrangler d1 create grok2api_db').
+[[d1_databases]]
+binding = "DB"
+database_name = "grok2api_db"
+database_id = "cfa542a6-1a06-4a70-b132-aecd4cc2d197"
+migrations_dir = "migrations"

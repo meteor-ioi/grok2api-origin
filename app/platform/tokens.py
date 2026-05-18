@@ -8,16 +8,31 @@ responses.
 from functools import lru_cache
 from typing import Any
 
-import orjson
-import tiktoken
+try:
+    import orjson
+except ImportError:
+    import json
+    class orjson:  # type: ignore[no-redef]
+        @staticmethod
+        def dumps(value: Any) -> bytes:
+            return json.dumps(value).encode()
+
+try:
+    import tiktoken
+    HAS_TIKTOKEN = True
+except ImportError:
+    HAS_TIKTOKEN = False
+    tiktoken = None  # type: ignore[assignment]
 
 PROMPT_OVERHEAD = 4
 _ENCODING_NAME = "o200k_base"
 
 
 @lru_cache(maxsize=1)
-def _get_encoding() -> tiktoken.Encoding:
-    return tiktoken.get_encoding(_ENCODING_NAME)
+def _get_encoding() -> Any:
+    if HAS_TIKTOKEN and tiktoken is not None:
+        return tiktoken.get_encoding(_ENCODING_NAME)
+    return None
 
 
 def _coerce_text(value: Any) -> str:
@@ -35,7 +50,20 @@ def estimate_tokens(value: Any) -> int:
     text = _coerce_text(value).strip()
     if not text:
         return 0
-    return len(_get_encoding().encode(text, disallowed_special=()))
+    enc = _get_encoding()
+    if enc is not None:
+        return len(enc.encode(text, disallowed_special=()))
+    
+    # Pure-Python fallback estimator for o200k_base:
+    # English/ASCII char: ~0.25 tokens (4 chars/token)
+    # Chinese/CJK char: ~1.25 tokens
+    tokens = 0.0
+    for char in text:
+        if '\u4e00' <= char <= '\u9fff' or '\u3040' <= char <= '\u30ff' or '\u1100' <= char <= '\u11ff' or '\u3130' <= char <= '\u318f' or '\uac00' <= char <= '\ud7af':
+            tokens += 1.25
+        else:
+            tokens += 0.25
+    return int(tokens)
 
 
 def estimate_prompt_tokens(value: Any, *, overhead: int = PROMPT_OVERHEAD) -> int:

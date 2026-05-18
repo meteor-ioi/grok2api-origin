@@ -8,7 +8,7 @@ from urllib.parse import urlsplit, urlunsplit
 from app.platform.paths import data_path
 from ..repository import AccountRepository
 
-_SUPPORTED_BACKENDS = {"local", "redis", "mysql", "postgresql"}
+_SUPPORTED_BACKENDS = {"local", "redis", "mysql", "postgresql", "cloudflare_d1"}
 
 
 def create_repository() -> AccountRepository:
@@ -32,6 +32,8 @@ def create_repository() -> AccountRepository:
         return _make_sql("mysql")
     if backend == "postgresql":
         return _make_sql("postgresql")
+    if backend == "cloudflare_d1":
+        return _make_cloudflare_d1()
 
     raise ValueError(f"Unknown account storage backend: {backend!r}")
 
@@ -48,6 +50,8 @@ def describe_repository_target() -> tuple[str, str]:
         return "mysql", _redact_url(_get_env("ACCOUNT_MYSQL_URL"))
     if backend == "postgresql":
         return "postgresql", _redact_url(_get_env("ACCOUNT_POSTGRESQL_URL"))
+    if backend == "cloudflare_d1":
+        return "cloudflare_d1", "Cloudflare D1 (Serverless SQLite)"
     return backend, "<unknown>"
 
 
@@ -106,6 +110,12 @@ def _redact_url(url: Any) -> str:
     else:
         auth = ""
     return urlunsplit((parts.scheme, f"{auth}{hostname}", parts.path, parts.query, parts.fragment))
+
+
+def _make_cloudflare_d1() -> AccountRepository:
+    from .cloudflare_d1 import CloudflareD1AccountRepository
+
+    return CloudflareD1AccountRepository()
 
 
 def _make_local() -> AccountRepository:
