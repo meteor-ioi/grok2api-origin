@@ -6,6 +6,7 @@ compatibility_flags = ["python_workers"]
 # System environment variables mapped directly to Workers vars
 [vars]
 ACCOUNT_STORAGE = "cloudflare_d1"
+LOG_FILE_ENABLED = "false"
 # Add other environment variables here as needed, e.g.:
 # API_KEY = "your-custom-auth-key"
 # PROXY_EGRESS_SKIP_SSL_VERIFY = "true"
